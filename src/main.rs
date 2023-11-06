@@ -248,7 +248,13 @@ fn main() -> ExitCode {
             if let Some(names) = names {
                 selected_names = names.clone();
             } else {
-                let hub_provider = package_provider::hub::CocmdHubPackageProvider::new(&"placeholder".to_string(), &packages_manager.settings.runtime_dir, None);
+
+                let hub_provider = package_provider::hub::CocmdHubPackageProvider::new(
+                    &"placeholder".to_string(),
+                    &packages_manager.settings.runtime_dir,
+                    None,
+                );
+
                 let index = hub_provider
                     .get_index(false)
                     .expect("unable to get index from hub");
