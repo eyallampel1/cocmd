@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use log::error;
 
+use super::utils::packages::extract_package_name_and_version;
 use crate::core::models::package_config_model::Automation;
 use crate::core::package::Package;
 use crate::core::utils::io::{file_read_lines, file_write_lines};
@@ -38,7 +39,7 @@ impl PackagesManager {
         if let Some(uri) = package_uri {
             // Get the provider
             let provider =
-                get_provider(&uri, &self.settings.runtime_dir).map_err(|e| e.to_string())?;
+                get_provider(&uri, &self.settings.runtime_dir, None).map_err(|e| e.to_string())?;
 
             // Check if the provider is local
             if provider.name() == LOCAL_PROVIDER {
@@ -93,7 +94,8 @@ impl PackagesManager {
                 for line in lines {
                     let uri = line.trim().to_string();
 
-                    let provider = get_provider(&uri, &settings.runtime_dir);
+                    let (package_uri, version) = extract_package_name_and_version(&uri);
+                    let provider = get_provider(&package_uri, &settings.runtime_dir, version);
                     if let Err(err) = provider {
                         error!("failed to get location for {} - {}", uri, err);
                         continue;
