@@ -47,6 +47,9 @@ futures = { version = "0.3.29", features = [] }
 colored = { version = "2.0.4", features = [] }
 
 
+[dev-dependencies]
+temp_testdir = "0.2.3"
+
 [features]
 default = ["cli"]
 # list optionals here:
