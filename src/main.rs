@@ -145,6 +145,7 @@ struct SetupArgs {
 }
 
 fn main() -> ExitCode {
+    set_logging_level(false);
     let cli = Cli::parse();
 
     if let Commands::Install { .. } = cli.command {
@@ -181,7 +182,12 @@ fn main() -> ExitCode {
         }
         Commands::Test { name, os, docker_image } => {
             res = test_playbook_command(name, os, docker_image);
+            if let Err(e) = res {
+                eprintln!("Error: {}", e);
+                return ExitCode::from(1);
+            }
         },
+
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);
         }
