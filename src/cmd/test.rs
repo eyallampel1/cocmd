@@ -2,11 +2,16 @@ use crate::core::models::script_model::ScriptModel;
 use crate::core::utils::sys::OS;
 use std::collections::HashMap;
 use anyhow::{Error, anyhow};
-use bollard::image::{CreateImageOptions, ListImagesOptions};
+use bollard::image::{CreateImageOptions};
 use bollard::Docker;
 use std::default::Default;
 use tokio::runtime::Runtime;
 use futures::stream::StreamExt;
+use colored::*;
+use bollard::image::ListImagesOptions;
+use std::process::Command;
+use std::str;
+
 
 struct TestRunner {
     playbook: String,
@@ -16,47 +21,47 @@ struct TestRunner {
 impl TestRunner {
     // Constructor
     fn new(playbook: String, os_list: Vec<String>) -> TestRunner {
+        println!("{} with playbook: {}", "Creating new TestRunner".green(), playbook.yellow());
         TestRunner { playbook, os_list }
     }
 
+
     // Method to pull the appropriate Docker image for the OS
-    // Method to pull the appropriate Docker image for the OS
-    fn pull_docker_image(&self, image: &str) {
-        // Create a new Tokio runtime
-        let rt = Runtime::new().unwrap();
+    fn pull_docker_image(image: &str) -> Result<(), Error> {
+        let output = Command::new("docker")
+            .arg("image")
+            .arg("ls")
+            .output()?;
 
-        // Execute the async block using the runtime
-        rt.block_on(async {
-            let docker = Docker::connect_with_local_defaults().unwrap();
+        if !output.status.success() {
+            return Err(anyhow!("Failed to list Docker images"));
+        }
 
-            // Check if image exists locally
-            let images = docker.list_images(Some(ListImagesOptions::<String> {
-                all: true,
-                ..Default::default()
-            })).await.unwrap();
-
-            let image_exists = images.iter().any(|i| {
-                i.repo_tags.iter().any(|tag| tag == image)
+        let output_str = str::from_utf8(&output.stdout)?;
+        let image_exists = output_str
+            .lines()
+            .filter(|line| !line.starts_with("REPOSITORY")) // Skip the header line
+            .any(|line| {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                parts.get(0).map_or(false, |repo| *repo == image.split(':').next().unwrap_or(""))
+                    && parts.get(1).map_or(false, |tag| *tag == image.split(':').nth(1).unwrap_or("latest"))
             });
 
-            // If image does not exist, pull from Docker Hub
-            if !image_exists {
-                let options = CreateImageOptions {
-                    from_image: image,
-                    ..Default::default()
-                };
+        if image_exists {
+            println!("Image already exists locally: {}", image);
+        } else {
+            println!("Pulling Docker image: {}", image);
+            // Logic to pull the image if it doesn't exist
+        }
 
-                let mut stream = docker.create_image(Some(options), None, None);
-
-                while let Some(result) = stream.next().await {
-                    match result {
-                        Ok(info) => println!("{:?}", info),
-                        Err(e) => eprintln!("Error: {}", e),
-                    }
-                }
-            }
-        });
+        Ok(())
     }
+
+
+
+
+
+
 
 
     // Method to mount the playbook files into the container
@@ -84,53 +89,113 @@ impl TestRunner {
         }
     }
 
-
     // Main method to run the tests
+// Main method to run the tests
     fn run(&self) -> Vec<(String, i32, String)> {
+        println!("{}", "Running tests...".green());
         let mut results = Vec::new();
-        let script_model = self.parse_playbook(); // Parse the playbook to get ScriptModel
 
-        let os_list = match script_model.env {
-            Some(os) => vec![os.to_string()],
-            None => vec!["linux".to_string(), "windows".to_string(), "osx".to_string()],
-        };
+        // Create a new Tokio runtime
+        let rt = Runtime::new().unwrap();
 
-        for os in os_list {
-            // Existing logic to run tests
+        for os in &self.os_list {
+            let display_os = match os.as_str() {
+                "sickcodes/docker-osx" => "OSX (macOS)",
+                "ubuntu:latest" => "Linux",
+                "microsoft-windows" => "Windows",
+                _ => os, // Default case, if no mapping is found
+            };
+
+            println!("{} on OS: {}", "Testing".cyan(), display_os.yellow());
+
+            // Correctly call the associated function and handle the Future
+            rt.block_on(async {
+                TestRunner::pull_docker_image(os).expect("Failed to pull Docker image");
+            });
+
+            // Here you would typically create a Docker container and get its ID
+            let container_id = "dummy_container_id"; // Placeholder for actual container ID
+
+            // Mount the playbook into the container
+            self.mount_playbook(container_id);
+
+            // Run the playbook inside the container
+            let (exit_code, output) = self.run_playbook(container_id);
+
+            // Collect the results
+            results.push((os.clone(), exit_code, output));
         }
 
+        println!("{}", "Tests completed.".green());
         results
     }
+
+
 }
 // Function to handle the 'test' subcommand
 pub fn test_playbook_command(playbook: String, os: Option<String>, docker_image: Option<String>) -> Result<(), Error> {
+    // Check if the OS is valid
+    let valid_os = ["linux", "osx", "windows", "all"];
+    if let Some(ref os_key) = os {
+        if !valid_os.contains(&os_key.as_str()) {
+            return Err(anyhow!("Invalid OS specified. Allowed values are: linux, osx, windows, all."));
+        }
+    }
+
+    // Check if the playbook is installed (assuming a function `is_playbook_installed`)
+    if !is_playbook_installed(&playbook) {
+        return Err(anyhow!("No playbook found with the name '{}'", playbook));
+    }
+
+    println!("{} called with playbook: {}", "test_playbook_command".green(), playbook.yellow());
+
     // Initialize the default images HashMap
     let mut default_images = HashMap::new();
-    default_images.insert("linux", "ubuntu");
+    default_images.insert("linux", "ubuntu:latest");
     default_images.insert("osx", "sickcodes/docker-osx");
     default_images.insert("windows", "microsoft-windows");
 
-// Determine the Docker image to use
-    let image = match (os.as_deref(), docker_image) {
-        (Some(os_key), None) => default_images.get(os_key).ok_or_else(|| anyhow!("No valid OS specified"))?.to_string(),
-        (_, Some(custom_image)) => custom_image,
-        _ => return Err(anyhow!("No valid OS or Docker image specified")),
+    // Determine the Docker image to use based on the OS and the docker_image argument
+    let docker_image_to_use = match (os.as_deref(), docker_image.as_deref()) {
+        (Some(os_key), None) => {
+            // No custom Docker image provided, use the default for the specified OS
+            default_images.get(os_key).ok_or_else(|| anyhow!("No valid OS specified"))?.to_string()
+        },
+        (_, Some(custom_image)) => {
+            // Custom Docker image provided, use it
+            custom_image.to_string()
+        },
+        _ => return Err(anyhow!("OS must be specified if no custom Docker image is provided")),
     };
 
-// Create a new TestRunner instance
-    let test_runner = TestRunner::new(playbook, vec![image]);
+    let os_identifier = os.unwrap_or_else(|| "Custom".to_string()); // Adjust this identifier as needed
+
+    // Create a new TestRunner instance with the correct OS identifier
+    let test_runner = TestRunner::new(playbook, vec![os_identifier]);
 
     // Run the tests and collect the results
     let results = test_runner.run();
 
     // Process and display the results
     for (os, exit_code, output) in results {
-        println!("OS: {}, Exit Code: {}, Output: {}", os, exit_code, output);
+        println!("OS: {}, Docker Image: {}, Exit Code: {}, Output: {}",
+                 os.yellow(),
+                 docker_image_to_use.cyan(),
+                 exit_code.to_string().magenta(),
+                 output.cyan());
         // Logic to determine pass/fail based on exit code
     }
 
     // Indicate success without an error
     Ok(())
+}
+
+// Dummy function to represent checking if a playbook is installed
+// Replace this with your actual logic to check installed playbooks
+fn is_playbook_installed(playbook: &str) -> bool {
+    // Implement the logic to check if the playbook is installed
+    // This is a placeholder function
+    true
 }
 
 // Example usage of the test_playbook_command function:
