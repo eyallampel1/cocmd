@@ -48,6 +48,8 @@ colored = { version = "2.0.4", features = [] }
 itertools = "0.11.0"
 maplit = "1.0.2"
 bollard = "0.15.0"
+tokio = { version = "1.34.0", features = ["full"] }
+futures = { version = "0.3.29", features = [] }
 
 
 [dev-dependencies]
