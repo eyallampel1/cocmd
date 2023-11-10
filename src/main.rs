@@ -19,6 +19,7 @@ use cmd::setup::run_setup;
 use cmd::show::howto;
 use cmd::show::{show_package, show_packages};
 use cmd::uninstall::uninstall_package;
+use cmd::test::test_playbook_command;
 use dialoguer::{Confirm, MultiSelect};
 use log::info;
 use tui_app::tui_runner;
@@ -101,6 +102,14 @@ enum Commands {
         /// Name argument for 'uninstall' - Specifies the name of the package to uninstall
         name: String,
     },
+    Test {
+        /// Name argument for specifying which playbook to test
+        name: String,
+
+        /// Optional argument for specifying the operating system
+        #[arg(long, short)]
+        os: Option<String>,
+    },
     /// Remove command (no subcommands) - Removes something (add a description here)
     Remove,
 
@@ -172,6 +181,9 @@ fn main() -> ExitCode {
         Commands::Uninstall { name } => {
             res = uninstall_package(&mut packages_manager, &name);
         }
+        Commands::Test { name, os } => {
+            res = test_playbook_command(name);
+        },
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);
         }

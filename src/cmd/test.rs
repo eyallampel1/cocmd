@@ -1,6 +1,6 @@
 use crate::core::models::script_model::ScriptModel;
 use crate::core::utils::sys::OS;
-
+use anyhow::Error;
 struct TestRunner {
     playbook: String,
     os_list: Vec<String>,
@@ -58,15 +58,16 @@ impl TestRunner {
 
         results
     }
+}
+// Function to handle the 'test' subcommand
+pub fn test_playbook_command(playbook: String) -> Result<(), Error> {
+    let test_runner = TestRunner::new(playbook, Vec::new()); // os_list is now determined inside run()
+    let results = test_runner.run();
 
-    // Function to handle the 'test' subcommand
-    pub fn test_playbook_command(playbook: String) {
-        let test_runner = TestRunner::new(playbook, Vec::new()); // os_list is now determined inside run()
-        let results = test_runner.run();
-
-        for (os, exit_code, output) in results {
-            println!("OS: {}, Exit Code: {}, Output: {}", os, exit_code, output);
-            // Logic to determine pass/fail based on exit code
-        }
+    for (os, exit_code, output) in results {
+        println!("OS: {}, Exit Code: {}, Output: {}", os, exit_code, output);
+        // Logic to determine pass/fail based on exit code
     }
+
+    Ok(()) // Indicate success without an error
 }
