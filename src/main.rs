@@ -103,13 +103,11 @@ enum Commands {
         name: String,
     },
     Test {
-        /// Name argument for specifying which playbook to test
         name: String,
-
-        /// Optional argument for specifying the operating system
-        #[arg(long, short)]
         os: Option<String>,
+        docker_image: Option<String>,
     },
+
     /// Remove command (no subcommands) - Removes something (add a description here)
     Remove,
 
@@ -181,8 +179,8 @@ fn main() -> ExitCode {
         Commands::Uninstall { name } => {
             res = uninstall_package(&mut packages_manager, &name);
         }
-        Commands::Test { name, os } => {
-            res = test_playbook_command(name);
+        Commands::Test { name, os, docker_image } => {
+            res = test_playbook_command(name, os, docker_image);
         },
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);
