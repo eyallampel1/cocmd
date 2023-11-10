@@ -5,3 +5,4 @@ pub mod run;
 pub mod setup;
 pub mod show;
 pub mod uninstall;
+pub mod test;

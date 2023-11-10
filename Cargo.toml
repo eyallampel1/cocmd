@@ -41,6 +41,7 @@ termimad = "0.24.0"
 crossterm = "0.27.0"
 env_logger = "0.10.0"
 log = "0.4.20"
+bollard = "0.15.0"
 
 [features]
 default = ["cli"]
