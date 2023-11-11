@@ -182,17 +182,13 @@ fn main() -> ExitCode {
         Commands::Uninstall { name } => {
             res = uninstall_package(&mut packages_manager, &name);
         }
+
         Commands::Test { name } => {
             let args = name.map_or_else(Vec::new, |n| vec![n]);
-            res = test_playbook_command(args);
-            if let Err(e) = res {
-                eprintln!("Error: {}", e);
-                return ExitCode::from(1);
-            }
-        },
 
-
-
+            // Use the existing packages_manager instance
+            res = test_playbook_command(args, &packages_manager);
+        }
 
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);

@@ -5,24 +5,28 @@ use anyhow::{Error, anyhow};
 use bollard::image::{CreateImageOptions};
 use bollard::Docker;
 use std::default::Default;
+use std::env::args;
 use tokio::runtime::Runtime;
 use futures::stream::StreamExt;
 use colored::*;
 use bollard::image::ListImagesOptions;
 use std::process::Command;
 use std::str;
+use log::error;
+// Assuming PackagesManager is properly imported and initialized
+use crate::core::packages_manager::PackagesManager;
 
-
-struct TestRunner {
+struct TestRunner<'a> {
     playbook: String,
     os_list: Vec<String>,
+    packages_manager: &'a PackagesManager,
 }
 
-impl TestRunner {
-    // Constructor
-    fn new(playbook: String, os_list: Vec<String>) -> TestRunner {
+impl<'a> TestRunner<'a> {
+    // Updated constructor with a reference to PackagesManager
+    fn new(playbook: String, os_list: Vec<String>, packages_manager: &'a PackagesManager) -> TestRunner<'a> {
         println!("{} with playbook: {}", "Creating new TestRunner".green(), playbook.yellow());
-        TestRunner { playbook, os_list }
+        TestRunner { playbook, os_list, packages_manager }
     }
 
 
@@ -127,12 +131,33 @@ impl TestRunner {
 
 }
 // Function to handle the 'test' subcommand
-pub fn test_playbook_command(args: Vec<String>) -> Result<(), Error> {
+pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
+
     // Initialize the default images HashMap
     let mut default_images = HashMap::new();
     default_images.insert("linux", "ubuntu:latest");
     default_images.insert("osx", "sickcodes/docker-osx");
     default_images.insert("windows", "microsoft-windows");
+
+    if args.len() == 1 {
+        let playbook = &args[0];
+
+        // Check if the playbook is installed
+        let package = match packages_manager.get_package(playbook.to_string()) {
+            Some(pkg) => pkg,
+            None => {
+                eprintln!("Package '{}' is not installed.", playbook);
+                return Err(anyhow!("Package '{}' is not installed.", playbook));
+            }
+        };
+
+        let os = determine_os_from_playbook(playbook)?; // Determine OS
+
+        // Create a new TestRunner instance with packages_manager reference
+        let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
+
+        // ... [Run tests and collect results]
+    }
 
     match args.len() {
         0 => {
@@ -143,6 +168,7 @@ pub fn test_playbook_command(args: Vec<String>) -> Result<(), Error> {
             // Example: let selected_os = "linux"; // or user-selected OS
         },
         1 => {
+
             // One argument provided, which is the playbook name
             let playbook = &args[0];
 
@@ -156,17 +182,6 @@ pub fn test_playbook_command(args: Vec<String>) -> Result<(), Error> {
             // Determine OS from playbook's .yaml file or prompt user
             let os = determine_os_from_playbook(&playbook)?; // Implement this function
 
-            // Create a new TestRunner instance
-            let test_runner = TestRunner::new(playbook.to_string(), vec![os]);
-
-            // Run the tests and collect the results
-            let results = test_runner.run();
-
-            // Process and display the results
-            for (os, exit_code, output) in results {
-                println!("OS: {}, Exit Code: {}, Output: {}", os, exit_code, output);
-                // Logic to determine pass/fail based on exit code
-            }
         },
         _ => {
             // More than one argument provided or unexpected argument
