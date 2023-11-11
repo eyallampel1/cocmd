@@ -34,6 +34,7 @@ impl TestRunner {
             .output()?;
 
         if !output.status.success() {
+            eprintln!("{}", "Failed to list Docker images".red());
             return Err(anyhow!("Failed to list Docker images"));
         }
 
@@ -58,17 +59,10 @@ impl TestRunner {
     }
 
 
-
-
-
-
-
-
     // Method to mount the playbook files into the container
     fn mount_playbook(&self, container_id: &str) {
         // Implement logic to mount playbook into the Docker container
     }
-
 
     // Method to run the playbook inside the container
     fn run_playbook(&self, container_id: &str) -> (i32, String) {
@@ -133,62 +127,97 @@ impl TestRunner {
 
 }
 // Function to handle the 'test' subcommand
-pub fn test_playbook_command(playbook: String, os: Option<String>, docker_image: Option<String>) -> Result<(), Error> {
-    // Check if the OS is valid
-    let valid_os = ["linux", "osx", "windows", "all"];
-    if let Some(ref os_key) = os {
-        if !valid_os.contains(&os_key.as_str()) {
-            return Err(anyhow!("Invalid OS specified. Allowed values are: linux, osx, windows, all."));
-        }
-    }
-
-    // Check if the playbook is installed (assuming a function `is_playbook_installed`)
-    if !is_playbook_installed(&playbook) {
-        return Err(anyhow!("No playbook found with the name '{}'", playbook));
-    }
-
-    println!("{} called with playbook: {}", "test_playbook_command".green(), playbook.yellow());
-
+pub fn test_playbook_command(args: Vec<String>) -> Result<(), Error> {
     // Initialize the default images HashMap
     let mut default_images = HashMap::new();
     default_images.insert("linux", "ubuntu:latest");
     default_images.insert("osx", "sickcodes/docker-osx");
     default_images.insert("windows", "microsoft-windows");
 
-    // Determine the Docker image to use based on the OS and the docker_image argument
-    let docker_image_to_use = match (os.as_deref(), docker_image.as_deref()) {
-        (Some(os_key), None) => {
-            // No custom Docker image provided, use the default for the specified OS
-            default_images.get(os_key).ok_or_else(|| anyhow!("No valid OS specified"))?.to_string()
+    match args.len() {
+        0 => {
+            // No arguments provided, open TUI for browsing packages
+            // Implement TUI logic here
+            // After package selection, prompt for OS or Docker image
+            // Example: let selected_package = "example_package";
+            // Example: let selected_os = "linux"; // or user-selected OS
         },
-        (_, Some(custom_image)) => {
-            // Custom Docker image provided, use it
-            custom_image.to_string()
+        1 => {
+            // One argument provided, which is the playbook name
+            let playbook = &args[0];
+
+            // Check if the playbook is installed
+            if !is_playbook_installed(playbook) {
+                eprintln!("{}", format!("No playbook found with the name '{}'", playbook).red());
+                return Err(anyhow!("No playbook found with the name '{}'", playbook));
+
+            }
+
+            // Determine OS from playbook's .yaml file or prompt user
+            let os = determine_os_from_playbook(&playbook)?; // Implement this function
+
+            // Create a new TestRunner instance
+            let test_runner = TestRunner::new(playbook.to_string(), vec![os]);
+
+            // Run the tests and collect the results
+            let results = test_runner.run();
+
+            // Process and display the results
+            for (os, exit_code, output) in results {
+                println!("OS: {}, Exit Code: {}, Output: {}", os, exit_code, output);
+                // Logic to determine pass/fail based on exit code
+            }
         },
-        _ => return Err(anyhow!("OS must be specified if no custom Docker image is provided")),
-    };
+        _ => {
+            // More than one argument provided or unexpected argument
+            eprintln!("{}", "Error: unexpected argument found".red());
+            eprintln!("{}", "Usage: cocmd test [PLAYBOOK_NAME]".green());
+            return Err(anyhow!("Invalid number of arguments. Usage: cocmd test [PLAYBOOK_NAME]"));
+        },    }
 
-    let os_identifier = os.unwrap_or_else(|| "Custom".to_string()); // Adjust this identifier as needed
-
-    // Create a new TestRunner instance with the correct OS identifier
-    let test_runner = TestRunner::new(playbook, vec![os_identifier]);
-
-    // Run the tests and collect the results
-    let results = test_runner.run();
-
-    // Process and display the results
-    for (os, exit_code, output) in results {
-        println!("OS: {}, Docker Image: {}, Exit Code: {}, Output: {}",
-                 os.yellow(),
-                 docker_image_to_use.cyan(),
-                 exit_code.to_string().magenta(),
-                 output.cyan());
-        // Logic to determine pass/fail based on exit code
-    }
-
-    // Indicate success without an error
     Ok(())
 }
+
+// Implement the `determine_os_from_playbook` function to extract the OS from the playbook's .yaml file
+// If no OS is specified in the file, prompt the user to select one
+fn determine_os_from_playbook(playbook: &str) -> Result<String, Error> {
+    // Example logic to read the playbook's .yaml file
+    // You'll need to replace this with your actual file reading and parsing logic
+
+    // Placeholder for the path to the playbook's .yaml file
+    let yaml_file_path = format!("/path/to/{}.yaml", playbook);
+
+    let contents = std::fs::read_to_string(yaml_file_path)
+        .map_err(|err| {
+            // Transform the error into a custom format, but don't print it here
+            anyhow!("Error reading YAML file: {}", err)
+        })?;
+
+
+// Parse the YAML content to find the 'env' field
+// This is a simplified example, adjust according to your YAML structure
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&contents)
+        .map_err(|err| {
+            eprintln!("{}", format!("Error parsing YAML: {}", err).red());
+            anyhow!("Error parsing YAML: {}", err)
+        })?;
+
+
+    if let Some(env) = yaml.get("env").and_then(|v| v.as_str()) {
+        // Return the OS specified in the 'env' field
+        Ok(env.to_string())
+    } else {
+        // If 'env' field is not found, prompt the user to select an OS
+        // Implement the logic for prompting the user
+        // Example: Ok("linux".to_string()) // Return the user-selected OS
+        Err(anyhow!("'env' field not found in the playbook's YAML file"))
+    }
+}
+
+
+// Implement the TUI logic for browsing packages and selecting an OS or Docker image
+// This part will depend on your existing TUI implementation
+
 
 // Dummy function to represent checking if a playbook is installed
 // Replace this with your actual logic to check installed playbooks

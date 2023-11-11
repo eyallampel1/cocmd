@@ -103,10 +103,12 @@ enum Commands {
         name: String,
     },
     Test {
-        name: String,
-        os: Option<String>,
-        docker_image: Option<String>,
+        /// Playbook name argument for 'test' - Specifies the name of the playbook to test
+        #[arg(name = "PLAYBOOK_NAME", help = "Specify the playbook name to test")]
+        name: Option<String>,
     },
+
+
 
     /// Remove command (no subcommands) - Removes something (add a description here)
     Remove,
@@ -180,13 +182,17 @@ fn main() -> ExitCode {
         Commands::Uninstall { name } => {
             res = uninstall_package(&mut packages_manager, &name);
         }
-        Commands::Test { name, os, docker_image } => {
-            res = test_playbook_command(name, os, docker_image);
+        Commands::Test { name } => {
+            let args = name.map_or_else(Vec::new, |n| vec![n]);
+            res = test_playbook_command(args);
             if let Err(e) = res {
                 eprintln!("Error: {}", e);
                 return ExitCode::from(1);
             }
         },
+
+
+
 
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);
