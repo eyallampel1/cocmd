@@ -38,32 +38,59 @@ impl<'a> TestRunner<'a> {
         let output = Command::new("docker")
             .arg("image")
             .arg("ls")
-            .output()?;
+            .output();
 
-        if !output.status.success() {
-            eprintln!("{}", "Failed to list Docker images".red());
-            return Err(anyhow!("Failed to list Docker images"));
-        }
+        match output {
+            Ok(output) => {
+                if !output.status.success() {
+                    eprintln!("{}", "Failed to list Docker images".red());
+                    return Err(anyhow!("Failed to list Docker images"));
+                }
 
-        let output_str = str::from_utf8(&output.stdout)?;
-        let image_exists = output_str
-            .lines()
-            .filter(|line| !line.starts_with("REPOSITORY")) // Skip the header line
-            .any(|line| {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                parts.get(0).map_or(false, |repo| *repo == image.split(':').next().unwrap_or(""))
-                    && parts.get(1).map_or(false, |tag| *tag == image.split(':').nth(1).unwrap_or("latest"))
-            });
+                let output_str = str::from_utf8(&output.stdout)?;
+                let image_exists = output_str
+                    .lines()
+                    .filter(|line| !line.starts_with("REPOSITORY"))
+                    .any(|line| {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        parts.get(0).map_or(false, |repo| *repo == image.split(':').next().unwrap_or(""))
+                            && parts.get(1).map_or(false, |tag| *tag == image.split(':').nth(1).unwrap_or("latest"))
+                    });
 
-        if image_exists {
-            println!("Image already exists locally: {}", image);
-        } else {
-            println!("Pulling Docker image: {}", image);
-            // Logic to pull the image if it doesn't exist
+                if image_exists {
+                    println!("{} {} {}","Image already exists locally:".green(), image,"No need to pull Docker image".cyan());
+                } else {
+                    println!("Pulling Docker image: {}", image);
+                    let pull_output = Command::new("docker")
+                        .arg("pull")
+                        .arg(image)
+                        .output();
+
+                    match pull_output {
+                        Ok(pull_output) => {
+                            if !pull_output.status.success() {
+                                let error_message = str::from_utf8(&pull_output.stderr)?;
+                                println!("{}", format!("Failed to pull Docker image: {}", error_message).red());
+                                return Err(anyhow!("Failed to pull Docker image: {}", error_message));
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to execute docker pull command: {}", e);
+                            return Err(anyhow!("Failed to execute docker pull command: {}", e));
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to execute docker image ls command: {}", e);
+                return Err(anyhow!("Failed to execute docker image ls command: {}", e));
+            }
         }
 
         Ok(())
     }
+
+
 
 
     // Method to mount the playbook files into the container
@@ -92,27 +119,25 @@ impl<'a> TestRunner<'a> {
 
     // Main method to run the tests
 // Main method to run the tests
-    fn run(&self) -> Vec<(String, i32, String)> {
+    fn run(&self) -> Result<Vec<(String, i32, String)>, Error> {
         println!("{}", "Running tests...".green());
         let mut results = Vec::new();
 
         // Create a new Tokio runtime
         let rt = Runtime::new().unwrap();
 
-        for os in &self.os_list {
-            let display_os = match os.as_str() {
-                "sickcodes/docker-osx" => "OSX (macOS)",
-                "ubuntu:latest" => "Linux",
-                "microsoft-windows" => "Windows",
-                _ => os, // Default case, if no mapping is found
-            };
+        for os_image in &self.os_list {
+            println!("{} on OS Image: {}", "Testing".cyan(), os_image.yellow());
 
-            println!("{} on OS: {}", "Testing".cyan(), display_os.yellow());
-
-            // Correctly call the associated function and handle the Future
-            rt.block_on(async {
-                TestRunner::pull_docker_image(os).expect("Failed to pull Docker image");
+            let pull_result = rt.block_on(async {
+                TestRunner::pull_docker_image(os_image)
             });
+
+            // Handle the result of the pull_docker_image call
+            if let Err(e) = pull_result {
+                eprintln!("Error pulling Docker image: {}", e);
+                return Err(e); // Return the error, stopping the program
+            }
 
             // Here you would typically create a Docker container and get its ID
             let container_id = "dummy_container_id"; // Placeholder for actual container ID
@@ -124,12 +149,13 @@ impl<'a> TestRunner<'a> {
             let (exit_code, output) = self.run_playbook(container_id);
 
             // Collect the results
-            results.push((os.clone(), exit_code, output));
+            results.push((os_image.to_string(), exit_code, output));
         }
 
         println!("{}", "Tests completed.".green());
-        results
+        Ok(results)
     }
+
 
 
 }
@@ -154,12 +180,17 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
             }
         };
 
-         //let os = determine_os_from_playbook(&playbook)?; // Determine OS
+        let os = determine_os_from_playbook(&playbook)?;
+        let os_str = os.as_str(); // Borrow `os` as a `&str`
+        let os_image = default_images.get(os_str).unwrap_or(&os_str);
 
-        // Create a new TestRunner instance with packages_manager reference
-       // let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
+        let test_runner = TestRunner::new(playbook.to_string(), vec![os_image.to_string()], packages_manager);
 
-        // ... [Run tests and collect results]
+        // Run tests and collect results
+        let results = test_runner.run();
+        // Process results as needed
+        // Run tests and collect results
+
     }
 
     match args.len() {
@@ -183,8 +214,8 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
             }
 
             // Determine OS from playbook's .yaml file or prompt user
-            let os = determine_os_from_playbook(&playbook)?; // Implement this function
-            let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
+            //let os = determine_os_from_playbook(&playbook)?; // Implement this function
+            //let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
 
         },
         _ => {
@@ -230,12 +261,6 @@ fn determine_os_from_playbook(playbook: &str) -> Result<String, Error> {
         Err(anyhow!("'automations' field not found in the playbook's YAML file"))
     }
 }
-
-
-
-
-
-
 
 // Implement the TUI logic for browsing packages and selecting an OS or Docker image
 // This part will depend on your existing TUI implementation
