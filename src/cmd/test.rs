@@ -13,8 +13,11 @@ use bollard::image::ListImagesOptions;
 use std::process::Command;
 use std::str;
 use log::error;
+use crate::core::models::settings::Settings;
 // Assuming PackagesManager is properly imported and initialized
 use crate::core::packages_manager::PackagesManager;
+
+
 
 struct TestRunner<'a> {
     playbook: String,
@@ -151,10 +154,10 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
             }
         };
 
-        let os = determine_os_from_playbook(playbook)?; // Determine OS
+         //let os = determine_os_from_playbook(&playbook)?; // Determine OS
 
         // Create a new TestRunner instance with packages_manager reference
-        let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
+       // let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
 
         // ... [Run tests and collect results]
     }
@@ -181,6 +184,7 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
 
             // Determine OS from playbook's .yaml file or prompt user
             let os = determine_os_from_playbook(&playbook)?; // Implement this function
+            let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
 
         },
         _ => {
@@ -195,39 +199,42 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
 
 // Implement the `determine_os_from_playbook` function to extract the OS from the playbook's .yaml file
 // If no OS is specified in the file, prompt the user to select one
-fn determine_os_from_playbook(playbook: &str) -> Result<String, Error> {
-    // Example logic to read the playbook's .yaml file
-    // You'll need to replace this with your actual file reading and parsing logic
 
-    // Placeholder for the path to the playbook's .yaml file
-    let yaml_file_path = format!("/path/to/{}.yaml", playbook);
+
+fn determine_os_from_playbook(playbook: &str) -> Result<String, Error> {
+    // Initialize settings
+    let settings = Settings::new(None, None);
+
+    // Construct the path to the playbook's YAML file using the runtime_dir
+    let yaml_file_path = settings.runtime_dir.join(playbook).join("cocmd.yaml");
 
     let contents = std::fs::read_to_string(yaml_file_path)
-        .map_err(|err| {
-            // Transform the error into a custom format, but don't print it here
-            anyhow!("Error reading YAML file: {}", err)
-        })?;
+        .map_err(|err| anyhow!("Error reading YAML file: {}", err))?;
 
-
-// Parse the YAML content to find the 'env' field
-// This is a simplified example, adjust according to your YAML structure
     let yaml: serde_yaml::Value = serde_yaml::from_str(&contents)
-        .map_err(|err| {
-            eprintln!("{}", format!("Error parsing YAML: {}", err).red());
-            anyhow!("Error parsing YAML: {}", err)
-        })?;
+        .map_err(|err| anyhow!("Error parsing YAML: {}", err))?;
 
-
-    if let Some(env) = yaml.get("env").and_then(|v| v.as_str()) {
-        // Return the OS specified in the 'env' field
-        Ok(env.to_string())
+    // Navigate through the 'automations' array
+    if let Some(automations) = yaml.get("automations").and_then(|v| v.as_sequence()) {
+        for automation in automations {
+            // Access the 'content' field and then the 'env' field
+            if let Some(content) = automation.get("content") {
+                if let Some(env) = content.get("env").and_then(|v| v.as_str()) {
+                    println!("{}: {}", "Detected OS".green(), env.yellow());
+                    return Ok(env.to_string());
+                }
+            }
+        }
+        Err(anyhow!("'env' field not found in any of the automations"))
     } else {
-        // If 'env' field is not found, prompt the user to select an OS
-        // Implement the logic for prompting the user
-        // Example: Ok("linux".to_string()) // Return the user-selected OS
-        Err(anyhow!("'env' field not found in the playbook's YAML file"))
+        Err(anyhow!("'automations' field not found in the playbook's YAML file"))
     }
 }
+
+
+
+
+
 
 
 // Implement the TUI logic for browsing packages and selecting an OS or Docker image
@@ -241,15 +248,3 @@ fn is_playbook_installed(playbook: &str) -> bool {
     // This is a placeholder function
     true
 }
-
-// Example usage of the test_playbook_command function:
-// 1. Test with a specified playbook on all default OSes:
-//    cocmd test rust
-// 2. Test with a specified playbook on a specific OS (Linux):
-//    cocmd test rust linux
-// 3. Test with a specified playbook, specific OS (Linux), and a custom Docker image:
-//    cocmd test rust linux custom/docker-image-link
-// 4. Test with a specified playbook on a specific OS (Windows):
-//    cocmd test rust windows
-// 5. Test with a specified playbook on a specific OS (OSX):
-//    cocmd test rust osx
