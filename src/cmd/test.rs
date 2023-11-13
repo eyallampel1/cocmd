@@ -1,4 +1,4 @@
-use crate::core::models::script_model::ScriptModel;
+use crate::core::models::script_model::{ScriptModel, StepModel};
 use crate::core::utils::sys::OS;
 use std::collections::HashMap;
 use anyhow::{Error, anyhow};
@@ -16,8 +16,18 @@ use log::error;
 use crate::core::models::settings::Settings;
 // Assuming PackagesManager is properly imported and initialized
 use crate::core::packages_manager::PackagesManager;
+use dialoguer::{Input, Select};
+use std::path::{Path, PathBuf};
+//import step_runner
+use crate::runner::step_runner::{apply_params_to_content, handle_step};
+use serde::{Deserialize, Serialize};
+use serde_yaml;
+use std::fs;
 
-
+#[derive(Deserialize)]
+struct Playbook {
+    steps: Vec<StepModel>,
+}
 
 struct TestRunner<'a> {
     playbook: String,
@@ -162,11 +172,56 @@ impl<'a> TestRunner<'a> {
 // Function to handle the 'test' subcommand
 pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
 
+    let mut selected_playbook = String::new();
+
     // Initialize the default images HashMap
     let mut default_images = HashMap::new();
-    default_images.insert("linux", "ubuntu:latest");
-    default_images.insert("osx", "sickcodes/docker-osx");
-    default_images.insert("windows", "microsoft-windows");
+    default_images.insert("Linux", "ubuntu:latest");
+    default_images.insert("macOS", "sickcodes/docker-osx");
+    default_images.insert("Windows", "microsoft-windows");
+
+    if args.is_empty() {
+        // Interactive mode
+        // Prompt for playbook selection
+        let playbooks = get_available_playbooks(packages_manager); // Implement this function to list available playbooks
+        let playbook_selection = Select::new()
+            .with_prompt("Select a playbook to test")
+            .items(&playbooks)
+            .default(0)
+            .interact()?;
+
+         selected_playbook = playbooks.get(playbook_selection).unwrap().to_string();
+
+        // Prompt for OS selection (optional)
+        let os_options = vec!["Linux", "Windows", "macOS", "Custom"];
+        let os_selection = Select::new()
+            .with_prompt("Select an OS to test on ")
+            .items(&os_options)
+            .default(0)
+            .interact()?;
+
+        let selected_os = match os_options.get(os_selection).unwrap() {
+            &"Custom" => {
+                let custom_os = Input::<String>::new()
+                    .with_prompt("Enter custom OS or Docker image")
+                    .allow_empty(true)
+                    .interact_text()?;
+                custom_os
+            }
+            os => os.to_string(),
+        };
+
+        // Define selected_os_image here
+        let selected_os_image: &str = default_images.get(selected_os.as_str()).unwrap_or(&selected_os.as_str());
+
+
+        // Run the test with the selected options
+        let test_runner = TestRunner::new(selected_playbook.clone(), vec![selected_os_image.to_string()], packages_manager);
+        let results = test_runner.run()?;
+        // Process results as needed
+
+        // Process results as needed
+    }
 
     if args.len() == 1 {
         let playbook = &args[0];
@@ -181,10 +236,14 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
         };
 
         let os = determine_os_from_playbook(&playbook)?;
-        let os_str = os.as_str(); // Borrow `os` as a `&str`
-        let os_image = default_images.get(os_str).unwrap_or(&os_str);
 
-        let test_runner = TestRunner::new(playbook.to_string(), vec![os_image.to_string()], packages_manager);
+        // Convert the OS string to a `&str` slice
+        let os_slice = os.as_str();
+
+        // Create a reference to the selected OS image
+        let selected_os_image: &str = default_images.get(os_slice).unwrap_or(&os_slice);
+
+        let test_runner = TestRunner::new(playbook.to_string(), vec![selected_os_image.to_string()], packages_manager);
 
         // Run tests and collect results
         let results = test_runner.run();
@@ -195,35 +254,61 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
 
     match args.len() {
         0 => {
-            // No arguments provided, open TUI for browsing packages
-            // Implement TUI logic here
-            // After package selection, prompt for OS or Docker image
-            // Example: let selected_package = "example_package";
-            // Example: let selected_os = "linux"; // or user-selected OS
+            let runtime_dir = &packages_manager.settings.runtime_dir;
+            let playbook_path = Path::new(runtime_dir);
+            let cocmd_yaml_path = playbook_path.join(&selected_playbook).join("cocmd.yaml");
+
+
+            let cocmd_yaml_path_str = cocmd_yaml_path.to_str().unwrap_or_default();
+            println!("Path to cocmd.yaml: {}", cocmd_yaml_path_str.yellow());
+
+            // Read and parse the YAML file
+            let yaml_content = fs::read_to_string(cocmd_yaml_path_str)
+                .expect("Failed to read YAML file");
+            let playbook: Playbook = serde_yaml::from_str(&yaml_content)
+                .expect("Failed to parse YAML content");
+
+            for step in playbook.steps {
+                // Assuming you have the necessary context (env, script_params, etc.)
+                // let success = handle_step(&step, env, script_params, packages_manager, params);
+                // if !success {
+                    // Handle failure
+                // }
+            }
+
+            // Run interactive shell mode
+            // Implement the logic for interactive mode here
+            println!("{}","Interactive test mode not implemented yet".red());
         },
         1 => {
 
-            // One argument provided, which is the playbook name
-            let playbook = &args[0];
-
-            // Check if the playbook is installed
-            if !is_playbook_installed(playbook) {
-                eprintln!("{}", format!("No playbook found with the name '{}'", playbook).red());
-                return Err(anyhow!("No playbook found with the name '{}'", playbook));
+            println!("{} {}","Testing playbook:".green(), args[0].yellow());
+            // One argument: playbook name
+            let playbook_name = &args[0];
+            // Implement the logic for testing with the specified playbook on all default OSes
 
             }
+        2 => {
 
-            // Determine OS from playbook's .yaml file or prompt user
-            //let os = determine_os_from_playbook(&playbook)?; // Implement this function
-            //let test_runner = TestRunner::new(playbook.to_string(), vec![os], packages_manager);
-
+            // print Two arguments: playbook name and OS
+            println!("{} {} {} {}","Testing playbook:".green(), args[0].yellow(), "on OS:".green(), args[1].yellow());
+            let playbook_name = &args[0];
+            let os = &args[1];
+            // Implement the logic for testing with the specified playbook on the specified OS
+        },
+        3 => {
+            // Three arguments: playbook name, OS, and Docker image
+            println!("{} {} {} {} {} {}","Testing playbook:".green(), args[0].yellow(), "on OS:".green(), args[1].yellow(), "with Docker image:".green(), args[2].yellow());
+            let playbook_name = &args[0];
+            let os = &args[1];
+            let docker_image = &args[2];
+            // Implement the logic for testing with the specified playbook, OS, and Docker image
         },
         _ => {
-            // More than one argument provided or unexpected argument
-            eprintln!("{}", "Error: unexpected argument found".red());
-            eprintln!("{}", "Usage: cocmd test [PLAYBOOK_NAME]".green());
-            return Err(anyhow!("Invalid number of arguments. Usage: cocmd test [PLAYBOOK_NAME]"));
-        },    }
+            // More than three arguments or unexpected argument
+            return Err(anyhow!("Invalid number of arguments."));
+        }
+    }
 
     Ok(())
 }
@@ -272,4 +357,13 @@ fn is_playbook_installed(playbook: &str) -> bool {
     // Implement the logic to check if the playbook is installed
     // This is a placeholder function
     true
+}
+
+// Function to get the names of all available playbooks
+pub fn get_available_playbooks(packages_manager: &PackagesManager) -> Vec<String> {
+    packages_manager
+        .packages
+        .values()
+        .map(|package| package.name().to_string())
+        .collect()
 }

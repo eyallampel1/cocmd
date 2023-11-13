@@ -103,9 +103,17 @@ enum Commands {
         name: String,
     },
     Test {
-        /// Playbook name argument for 'test' - Specifies the name of the playbook to test
+        /// Optional playbook name argument for 'test' - Specifies the name of the playbook to test
         #[arg(name = "PLAYBOOK_NAME", help = "Specify the playbook name to test")]
-        name: Option<String>,
+        playbook_name: Option<String>,
+
+        /// Optional OS argument for 'test' - Specifies the OS to test on
+        #[arg(name = "OS", help = "Specify the OS to test on")]
+        os: Option<String>,
+
+        /// Optional Docker image argument for 'test' - Specifies a custom Docker image to use
+        #[arg(name = "DOCKER_IMAGE", help = "Specify a custom Docker image to use")]
+        docker_image: Option<String>,
     },
 
 
@@ -183,12 +191,22 @@ fn main() -> ExitCode {
             res = uninstall_package(&mut packages_manager, &name);
         }
 
-        Commands::Test { name } => {
-            let args = name.map_or_else(Vec::new, |n| vec![n]);
+        Commands::Test { playbook_name, os, docker_image } => {
+            // Construct the arguments vector based on the provided options
+            let mut args = Vec::new();
+            if let Some(playbook) = playbook_name {
+                args.push(playbook);
+            }
+            if let Some(os) = os {
+                args.push(os);
+            }
+            if let Some(docker_image) = docker_image {
+                args.push(docker_image);
+            }
 
             // Use the existing packages_manager instance
             res = test_playbook_command(args, &packages_manager);
-        }
+        },
 
         Commands::ProfileLoader => {
             res = run_profile_loader(&mut packages_manager);

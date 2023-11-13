@@ -137,7 +137,7 @@ pub fn handle_step(
     true
 }
 
-fn apply_params_to_content(
+pub(crate) fn apply_params_to_content(
     cmd: String,
     step_params: Vec<StepParamModel>,
     packages_manager: &mut PackagesManager,
