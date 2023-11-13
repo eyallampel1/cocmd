@@ -6,7 +6,10 @@ use crate::core::utils::sys::OS;
 use crate::core::{models::script_model::ScriptModel, packages_manager::PackagesManager};
 use crate::output::print_md_debug;
 pub mod shell;
-pub(crate) mod step_runner;
+
+mod step_runner;
+mod utils;
+
 
 pub fn run_script(
     automation_name: &String,
