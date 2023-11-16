@@ -6,6 +6,8 @@ pub(crate) mod output;
 pub(crate) mod package_provider;
 pub(crate) mod runner;
 pub(crate) mod tui_app;
+
+
 use std::process::ExitCode;
 
 use anyhow::Error;
@@ -154,8 +156,8 @@ struct SetupArgs {
     #[arg(short, long)]
     shell: Option<String>,
 }
-
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     set_logging_level(false);
     let cli = Cli::parse();
 
@@ -206,7 +208,7 @@ fn main() -> ExitCode {
             }
 
             // Use the existing packages_manager instance
-            res = test_playbook_command(args, &packages_manager);
+            res = test_playbook_command(args, &packages_manager).await;
         },
 
         Commands::ProfileLoader => {

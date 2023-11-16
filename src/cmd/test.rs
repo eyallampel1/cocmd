@@ -23,6 +23,10 @@ use crate::runner::step_runner::{apply_params_to_content, handle_step};
 use serde::{Deserialize, Serialize};
 use serde_yaml;
 use std::fs;
+use crate::runner::test_runner::docker;
+
+
+
 
 #[derive(Deserialize)]
 struct Playbook {
@@ -134,14 +138,13 @@ impl<'a> TestRunner<'a> {
         let mut results = Vec::new();
 
         // Create a new Tokio runtime
-        let rt = Runtime::new().unwrap();
+        // let rt = Runtime::new().unwrap();
 
         for os_image in &self.os_list {
             println!("{} on OS Image: {}", "Testing".cyan(), os_image.yellow());
 
-            let pull_result = rt.block_on(async {
-                TestRunner::pull_docker_image(os_image)
-            });
+            let pull_result = TestRunner::pull_docker_image(os_image);
+
 
             // Handle the result of the pull_docker_image call
             if let Err(e) = pull_result {
@@ -170,7 +173,7 @@ impl<'a> TestRunner<'a> {
 
 }
 // Function to handle the 'test' subcommand
-pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
+pub async fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
 
     let mut selected_playbook = String::new();
 
@@ -265,16 +268,12 @@ pub fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManag
             // Read and parse the YAML file
             let yaml_content = fs::read_to_string(cocmd_yaml_path_str)
                 .expect("Failed to read YAML file");
-            let playbook: Playbook = serde_yaml::from_str(&yaml_content)
-                .expect("Failed to parse YAML content");
 
-            for step in playbook.steps {
-                // Assuming you have the necessary context (env, script_params, etc.)
-                // let success = handle_step(&step, env, script_params, packages_manager, params);
-                // if !success {
-                    // Handle failure
-                // }
-            }
+            let rt = Runtime::new()?;
+
+            // Use the runtime to await the async function
+            docker::run_playbook_on_docker(cocmd_yaml_path_str).await?;
+
 
             // Run interactive shell mode
             // Implement the logic for interactive mode here
