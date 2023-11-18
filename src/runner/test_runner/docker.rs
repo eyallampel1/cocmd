@@ -37,17 +37,28 @@ struct Step {
     content: String,
 }
 
-
 pub async fn create_and_start_container(docker_image: &str, container_name: &str) -> Result<String, anyhow::Error> {
     let docker = Docker::connect_with_unix_defaults()?;
     let container_options = CreateContainerOptions { name: container_name.to_string(), ..Default::default() };
-    let config = Config { image: Some(docker_image.to_string()), ..Default::default() };
+
+    // Create an instance of HostConfig with privileged set to true
+    let host_config = HostConfig {
+        privileged: Some(true),
+        ..Default::default()
+    };
+
+    let config = Config {
+        image: Some(docker_image.to_string()),
+        host_config: Some(host_config), // Include the HostConfig here
+        ..Default::default()
+    };
 
     let container = docker.create_container(Some(container_options), config);
-    docker.start_container(container_name, None::<StartContainerOptions<String>>).await?;
+    docker.start_container(container_name, None::<StartContainerOptions<String>>);
 
     Ok(container_name.to_string())
 }
+
 
 pub async fn run_playbook_on_docker(yaml_path: &str, container_id: &str, x: &String) -> Result<(), anyhow::Error> {
     println!("Inside run_playbook_on_docker");
@@ -79,10 +90,10 @@ pub async fn run_playbook_on_docker(yaml_path: &str, container_id: &str, x: &Str
 
                 // Start the execution process
                 println!("Starting exec process: {}", exec_id);
-                docker.start_exec(&exec_id, None::<StartExecOptions>).await?;
+                docker.start_exec(&exec_id, None::<StartExecOptions>);
 
                 // Optionally, add a delay or logic to wait for the command to complete
-                // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                 tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
 
                 // Retrieve and print logs
                 let mut logs_stream = docker.logs(container_id, Some(LogsOptions::<String> {
