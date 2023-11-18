@@ -39,6 +39,7 @@ struct TestRunner<'a> {
     packages_manager: &'a PackagesManager,
 }
 
+
 impl<'a> TestRunner<'a> {
     // Updated constructor with a reference to PackagesManager
     fn new(playbook: String, os_list: Vec<String>, packages_manager: &'a PackagesManager) -> TestRunner<'a> {
@@ -46,6 +47,13 @@ impl<'a> TestRunner<'a> {
         TestRunner { playbook, os_list, packages_manager }
     }
 
+    fn construct_yaml_path(&self) -> String {
+        // Get settings to access the runtime directory
+        let settings = Settings::new(None, None);
+
+        // Construct the path to the playbook's YAML file using the runtime_dir
+        settings.runtime_dir.join(&self.playbook).join("cocmd.yaml").to_string_lossy().into_owned()
+    }
 
     // Method to pull the appropriate Docker image for the OS
     fn pull_docker_image(image: &str) -> Result<(), Error> {
@@ -133,7 +141,7 @@ impl<'a> TestRunner<'a> {
 
     // Main method to run the tests
 // Main method to run the tests
-    fn run(&self) -> Result<Vec<(String, i32, String)>, Error> {
+    async fn run(&self) -> Result<Vec<(String, i32, String)>, Error> {
         println!("{}", "Running tests...".green());
         let mut results = Vec::new();
 
@@ -143,7 +151,9 @@ impl<'a> TestRunner<'a> {
         for os_image in &self.os_list {
             println!("{} on OS Image: {}", "Testing".cyan(), os_image.yellow());
 
-            let pull_result = TestRunner::pull_docker_image(os_image);
+            let docker_image = self.packages_manager.get_docker_image_for_os(os_image);
+
+            let pull_result = TestRunner::pull_docker_image(&docker_image);
 
 
             // Handle the result of the pull_docker_image call
@@ -151,18 +161,14 @@ impl<'a> TestRunner<'a> {
                 eprintln!("Error pulling Docker image: {}", e);
                 return Err(e); // Return the error, stopping the program
             }
+            // Create and start the container
+            let container_id = docker::create_and_start_container(&os_image, &format!("{}_container", self.playbook)).await?;
 
-            // Here you would typically create a Docker container and get its ID
-            let container_id = "dummy_container_id"; // Placeholder for actual container ID
+            // Construct the path to the YAML file
+            let yaml_path = self.construct_yaml_path();
+            docker::run_playbook_on_docker(&yaml_path, &container_id, &docker_image).await?;
 
-            // Mount the playbook into the container
-            self.mount_playbook(container_id);
 
-            // Run the playbook inside the container
-            let (exit_code, output) = self.run_playbook(container_id);
-
-            // Collect the results
-            results.push((os_image.to_string(), exit_code, output));
         }
 
         println!("{}", "Tests completed.".green());
@@ -174,140 +180,49 @@ impl<'a> TestRunner<'a> {
 }
 // Function to handle the 'test' subcommand
 pub async fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
+    let default_images = HashMap::from([
+        ("Linux", "ubuntu:latest"),
+        ("macOS", "sickcodes/docker-osx"),
+        ("Windows", "mcr.microsoft.com/windows/servercore:ltsc2019"),
+    ]);
 
-    let mut selected_playbook = String::new();
-
-    // Initialize the default images HashMap
-    let mut default_images = HashMap::new();
-    default_images.insert("Linux", "ubuntu:latest");
-    default_images.insert("macOS", "sickcodes/docker-osx");
-    default_images.insert("Windows", "microsoft-windows");
+    let selected_playbook;
+    let selected_os_image;
 
     if args.is_empty() {
         // Interactive mode
-        // Prompt for playbook selection
-        let playbooks = get_available_playbooks(packages_manager); // Implement this function to list available playbooks
+        let playbooks = get_available_playbooks(packages_manager);
         let playbook_selection = Select::new()
             .with_prompt("Select a playbook to test")
             .items(&playbooks)
             .default(0)
             .interact()?;
+        selected_playbook = playbooks.get(playbook_selection).unwrap().to_string();
 
-         selected_playbook = playbooks.get(playbook_selection).unwrap().to_string();
-
-        // Prompt for OS selection (optional)
         let os_options = vec!["Linux", "Windows", "macOS", "Custom"];
         let os_selection = Select::new()
-            .with_prompt("Select an OS to test on ")
+            .with_prompt("Select an OS to test on")
             .items(&os_options)
             .default(0)
             .interact()?;
 
         let selected_os = match os_options.get(os_selection).unwrap() {
-            &"Custom" => {
-                let custom_os = Input::<String>::new()
-                    .with_prompt("Enter custom OS or Docker image")
-                    .allow_empty(true)
-                    .interact_text()?;
-                custom_os
-            }
+            &"Custom" => Input::<String>::new()
+                .with_prompt("Enter custom OS or Docker image")
+                .allow_empty(true)
+                .interact_text()?,
             os => os.to_string(),
         };
 
-        // Define selected_os_image here
-        let selected_os_image: &str = default_images.get(selected_os.as_str()).unwrap_or(&selected_os.as_str());
-
-
-        // Run the test with the selected options
-        let test_runner = TestRunner::new(selected_playbook.clone(), vec![selected_os_image.to_string()], packages_manager);
-        let results = test_runner.run()?;
-        // Process results as needed
-
-        // Process results as needed
+        selected_os_image = default_images.get(selected_os.as_str()).unwrap_or(&"ubuntu:latest");
+    } else {
+        selected_playbook = args.get(0).cloned().unwrap_or_default();
+        let os = determine_os_from_playbook(&selected_playbook)?;
+        selected_os_image = default_images.get(os.as_str()).unwrap_or(&"ubuntu:latest");
     }
 
-    if args.len() == 1 {
-        let playbook = &args[0];
-
-        // Check if the playbook is installed
-        let package = match packages_manager.get_package(playbook.to_string()) {
-            Some(pkg) => pkg,
-            None => {
-                eprintln!("Package '{}' is not installed.", playbook);
-                return Err(anyhow!("Package '{}' is not installed.", playbook));
-            }
-        };
-
-        let os = determine_os_from_playbook(&playbook)?;
-
-        // Convert the OS string to a `&str` slice
-        let os_slice = os.as_str();
-
-        // Create a reference to the selected OS image
-        let selected_os_image: &str = default_images.get(os_slice).unwrap_or(&os_slice);
-
-        let test_runner = TestRunner::new(playbook.to_string(), vec![selected_os_image.to_string()], packages_manager);
-
-        // Run tests and collect results
-        let results = test_runner.run();
-        // Process results as needed
-        // Run tests and collect results
-
-    }
-
-    match args.len() {
-        0 => {
-            let runtime_dir = &packages_manager.settings.runtime_dir;
-            let playbook_path = Path::new(runtime_dir);
-            let cocmd_yaml_path = playbook_path.join(&selected_playbook).join("cocmd.yaml");
-
-
-            let cocmd_yaml_path_str = cocmd_yaml_path.to_str().unwrap_or_default();
-            println!("Path to cocmd.yaml: {}", cocmd_yaml_path_str.yellow());
-
-            // Read and parse the YAML file
-            let yaml_content = fs::read_to_string(cocmd_yaml_path_str)
-                .expect("Failed to read YAML file");
-
-            let rt = Runtime::new()?;
-
-            // Use the runtime to await the async function
-            docker::run_playbook_on_docker(cocmd_yaml_path_str).await?;
-
-
-            // Run interactive shell mode
-            // Implement the logic for interactive mode here
-            println!("{}","Interactive test mode not implemented yet".red());
-        },
-        1 => {
-
-            println!("{} {}","Testing playbook:".green(), args[0].yellow());
-            // One argument: playbook name
-            let playbook_name = &args[0];
-            // Implement the logic for testing with the specified playbook on all default OSes
-
-            }
-        2 => {
-
-            // print Two arguments: playbook name and OS
-            println!("{} {} {} {}","Testing playbook:".green(), args[0].yellow(), "on OS:".green(), args[1].yellow());
-            let playbook_name = &args[0];
-            let os = &args[1];
-            // Implement the logic for testing with the specified playbook on the specified OS
-        },
-        3 => {
-            // Three arguments: playbook name, OS, and Docker image
-            println!("{} {} {} {} {} {}","Testing playbook:".green(), args[0].yellow(), "on OS:".green(), args[1].yellow(), "with Docker image:".green(), args[2].yellow());
-            let playbook_name = &args[0];
-            let os = &args[1];
-            let docker_image = &args[2];
-            // Implement the logic for testing with the specified playbook, OS, and Docker image
-        },
-        _ => {
-            // More than three arguments or unexpected argument
-            return Err(anyhow!("Invalid number of arguments."));
-        }
-    }
+    let test_runner = TestRunner::new(selected_playbook, vec![selected_os_image.to_string()], packages_manager);
+    test_runner.run().await?;
 
     Ok(())
 }
@@ -346,9 +261,17 @@ fn determine_os_from_playbook(playbook: &str) -> Result<String, Error> {
     }
 }
 
-// Implement the TUI logic for browsing packages and selecting an OS or Docker image
-// This part will depend on your existing TUI implementation
-
+impl PackagesManager {
+    pub fn get_docker_image_for_os(&self, os_name: &str) -> String {
+        match os_name {
+            "Linux" => "ubuntu:latest".to_string(),
+            "macOS" => "sickcodes/docker-osx".to_string(),
+            "Windows" => "mcr.microsoft.com/windows/servercore:ltsc2019".to_string(),
+            // Handle custom or other cases
+            _ => "ubuntu:latest".to_string(), // Default or custom handling
+        }
+    }
+}
 
 // Dummy function to represent checking if a playbook is installed
 // Replace this with your actual logic to check installed playbooks
