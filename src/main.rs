@@ -279,7 +279,7 @@ async fn main() -> ExitCode {
             }
             trace!("Ok, I will install: {}", selected_names.join(", "));
             for name in selected_names {
-                res = add::install_package(&mut packages_manager, &name, None, dont_ask);
+                res = add::install_package(&mut packages_manager, &name, None);
             }
         }
         Commands::Remove => {

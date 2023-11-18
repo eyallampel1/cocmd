@@ -14,7 +14,7 @@ use crate::package_provider::get_provider;
 pub fn install_package(
     packages_manager: &mut PackagesManager,
     package: &str,
-    dont_ask: bool,
+    dont_ask: Option<bool>,
 ) -> Result<(), Error> {
     info!("Installing package {:?}", package);
 
@@ -68,11 +68,11 @@ pub fn install_package(
         );
     }
     if !provider.is_provider_local()
-        || dont_ask
+        || dont_ask.unwrap_or(false) // Handle the Option<bool> correctly
         || Confirm::new()
-            .with_prompt("Do you want to continue?")
-            .interact()
-            .unwrap()
+        .with_prompt("Do you want to continue?")
+        .interact()
+        .unwrap()
     {
         for loc in locations {
             let package: Package = Package::new(
