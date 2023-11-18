@@ -49,40 +49,50 @@ pub async fn create_and_start_container(docker_image: &str, container_name: &str
     Ok(container_name.to_string())
 }
 
-pub async fn run_playbook_on_docker(yaml_path: &str, container_id: &str,docker_image: &str) -> Result<(), anyhow::Error> {
+pub async fn run_playbook_on_docker(yaml_path: &str, container_id: &str, x: &String) -> Result<(), anyhow::Error> {
     println!("Inside run_playbook_on_docker");
 
+    // Read the YAML content from the given path
     let yaml_content = fs::read_to_string(yaml_path)?;
     let playbook: Playbook = serde_yaml::from_str(&yaml_content)?;
 
+    // Connect to Docker
     let docker = Docker::connect_with_unix_defaults()?;
 
+    // Iterate through the automations and execute each step
     for automation in playbook.automations {
         if let Some(content) = automation.content {
             for step in content.steps {
                 println!("Executing step: {}", step.title);
 
-                let container_options = CreateContainerOptions { name: container_id.to_string(), ..Default::default() };
-                let config = Config { image: Some(docker_image.to_string()), ..Default::default() };
-                docker.create_container(Some(container_options), config).await?;
-                docker.start_container(container_id, None::<StartContainerOptions<String>>).await?;
-                println!("Container created and started.");
+                // Configure the execution command
+                let exec_options = CreateExecOptions {
+                    cmd: Some(vec!["/bin/sh".to_string(), "-c".to_string(), step.content]),
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    ..Default::default()
+                };
 
-                let exec_options = CreateExecOptions { cmd: Some(vec!["/bin/sh".to_string(), "-c".to_string(), step.content.clone()]), attach_stdout: Some(true), attach_stderr: Some(true), ..Default::default() };
-                println!("Command to execute: {:?}", exec_options.cmd);
-
+                // Create the execution process in the container
                 let exec_creation = docker.create_exec(container_id, exec_options).await?;
                 let exec_id = exec_creation.id;
 
+                // Start the execution process
                 println!("Starting exec process: {}", exec_id);
                 docker.start_exec(&exec_id, None::<StartExecOptions>).await?;
-                println!("Command execution started: {}", exec_id);
 
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await; // Delay to allow command execution
+                // Optionally, add a delay or logic to wait for the command to complete
+                // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-                let mut logs_stream = docker.logs(container_id, Some(LogsOptions::<String> { stdout: true, stderr: true, follow: true, ..Default::default() }));
+                // Retrieve and print logs
+                let mut logs_stream = docker.logs(container_id, Some(LogsOptions::<String> {
+                    stdout: true,
+                    stderr: true,
+                    follow: true,
+                    ..Default::default()
+                }));
+
                 println!("Retrieving logs...");
-
                 while let Some(result) = logs_stream.next().await {
                     match result {
                         Ok(output) => match output {

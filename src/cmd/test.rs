@@ -181,7 +181,8 @@ impl<'a> TestRunner<'a> {
 // Function to handle the 'test' subcommand
 pub async fn test_playbook_command(args: Vec<String>, packages_manager: &PackagesManager) -> Result<(), Error> {
     let default_images = HashMap::from([
-        ("Linux", "ubuntu:latest"),
+        //("Linux", "ubuntu:latest"),
+        ("Linux", "my-ubuntu-with-curl:latest"),
         ("macOS", "sickcodes/docker-osx"),
         ("Windows", "mcr.microsoft.com/windows/servercore:ltsc2019"),
     ]);
